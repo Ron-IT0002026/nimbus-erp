@@ -4,33 +4,28 @@ import os
 
 app = Flask(__name__)
 
-# Database Configuration
+# 1. DATABASE CONFIGURATION
 basedir = os.path.abspath(os.path.dirname(__file__))
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'nimbus_leasing.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
-# --- DATABASE MODEL ---
+# 2. DATABASE MODEL
 class Tenant(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    # Personal & Business Details
     name = db.Column(db.String(100))
     bus_name = db.Column(db.String(100))
     property_name = db.Column(db.String(100))
-    
-    # Family Information
     father_name = db.Column(db.String(100))
     mother_name = db.Column(db.String(100))
     f_health = db.Column(db.String(100))
     m_health = db.Column(db.String(100))
-    
-    # Financials (Auto-computed)
     basic_rent = db.Column(db.Float)
     vat_12 = db.Column(db.Float)
     wht_5 = db.Column(db.Float)
     total_rent = db.Column(db.Float)
 
-# --- HTML TEMPLATES (Embedded using Render Template String) ---
+# 3. HTML TEMPLATES (LAYOUT, INDEX, DASHBOARD)
 LAYOUT = """
 <!DOCTYPE html>
 <html lang="en">
@@ -48,7 +43,7 @@ LAYOUT = """
     </style>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark mb-4">
+    <nav class="navbar navbar-expand-lg navbar-dark mb-4 text-center">
         <div class="container">
             <a class="navbar-brand fw-bold" href="/">NIMBUS DEVELOPMENT</a>
             <div class="navbar-nav">
@@ -93,7 +88,6 @@ INDEX_HTML = """
                     <div class="col-md-12">
                         <label class="form-label">Basic Monthly Rent (PHP)</label>
                         <input type="number" name="basic_rent" step="0.01" class="form-control" placeholder="0.00" required>
-                        <small class="text-muted">System will auto-calculate 12% VAT and 5% WHT.</small>
                     </div>
                 </div>
                 <button type="submit" class="btn btn-primary mt-4 w-100 py-2 fw-bold">Save & Generate Ledger</button>
@@ -114,31 +108,15 @@ DASHBOARD_HTML = """
             <h2>₱ {{ "{:,.2f}".format(total_revenue) }}</h2>
         </div>
     </div>
-    <div class="col-md-4">
-        <div class="card bg-success text-white p-3 shadow-sm">
-            <h5>Active Tenants</h5>
-            <h2>{{ tenants|length }}</h2>
-        </div>
-    </div>
 </div>
-
 <div class="table-container shadow-sm">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h4>Summary of Tenants per Property</h4>
-        <form action="/dashboard" method="GET" class="d-flex w-50">
-            <input type="text" name="search" class="form-control me-2" placeholder="Search name or business..." value="{{ search }}">
-            <button type="submit" class="btn btn-dark">Search</button>
-        </form>
-    </div>
-    
-    <table class="table table-striped align-middle">
+    <table class="table table-striped">
         <thead class="table-dark">
             <tr>
                 <th>Tenant / Business</th>
                 <th>Property</th>
                 <th>Parents & Health</th>
                 <th>Monthly Dues</th>
-                <th>Action</th>
             </tr>
         </thead>
         <tbody>
@@ -146,9 +124,8 @@ DASHBOARD_HTML = """
             <tr>
                 <td><strong>{{ t.name }}</strong><br><small>{{ t.bus_name }}</small></td>
                 <td>{{ t.property_name }}</td>
-                <td><small>F: {{ t.father_name }} ({{ t.f_health }})<br>M: {{ t.mother_name }} ({{ t.m_health }})</small></td>
-                <td><span class="badge bg-info text-dark">₱ {{ "{:,.2f}".format(t.total_rent) }}</span></td>
-                <td><a href="/delete/{{ t.id }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete this record?')">Remove</a></td>
+                <td>F: {{ t.father_name }} ({{ t.f_health }})<br>M: {{ t.mother_name }} ({{ t.m_health }})</td>
+                <td>₱ {{ "{:,.2f}".format(t.total_rent) }}</td>
             </tr>
             {% endfor %}
         </tbody>
@@ -157,8 +134,7 @@ DASHBOARD_HTML = """
 {% endblock %}
 """
 
-# --- ROUTES & LOGIC ---
-
+# 4. ROUTES & LOGIC
 @app.route('/')
 def index():
     return render_template_string(LAYOUT.replace("{% block content %} {% endblock %}", INDEX_HTML))
@@ -166,20 +142,15 @@ def index():
 @app.route('/submit', methods=['POST'])
 def submit():
     basic = float(request.form.get('basic_rent', 0))
-    # Ledger Logic: (Basic + 12% VAT) - 5% WHT
     vat = basic * 0.12
     wht = basic * 0.05
     total = (basic + vat) - wht
-    
     new_tenant = Tenant(
-        name=request.form.get('name'),
-        bus_name=request.form.get('bus_name'),
-        property_name=request.form.get('property'),
-        father_name=request.form.get('father_name'),
-        mother_name=request.form.get('mother_name'),
-        f_health=request.form.get('f_health'),
-        m_health=request.form.get('m_health'),
-        basic_rent=basic, vat_12=vat, wht_5=wht, total_rent=total
+        name=request.form.get('name'), bus_name=request.form.get('bus_name'),
+        property_name=request.form.get('property'), father_name=request.form.get('father_name'),
+        mother_name=request.form.get('mother_name'), f_health=request.form.get('f_health'),
+        m_health=request.form.get('m_health'), basic_rent=basic, vat_12=vat,
+        wht_5=wht, total_rent=total
     )
     db.session.add(new_tenant)
     db.session.commit()
@@ -192,38 +163,9 @@ def dashboard():
         tenants = Tenant.query.filter(Tenant.name.contains(search) | Tenant.bus_name.contains(search)).all()
     else:
         tenants = Tenant.query.all()
-    
     total_rev = sum(t.total_rent for t in tenants)
     return render_template_string(LAYOUT.replace("{% block content %} {% endblock %}", DASHBOARD_HTML), 
                                   tenants=tenants, total_revenue=total_rev, search=search)
-
-@app.route('/delete/<int:id>')
-def delete(id):
-    tenant = Tenant.query.get_or_404(id)
-    db.session.delete(tenant)
-    db.session.commit()
-    return redirect(url_for('dashboard'))
-
-if __name__ == '__main__':
-    with app.app_context():
-        db.create_all() # Automatic creation of nimbus_leasing.db
-    app.run(debug=True)
-from flask import Flask, render_template_string
-from flask_sqlalchemy import SQLAlchemy # Siguraduhing naka-install ito gamit ang pip
-
-# 1. DAPAT MAUNA ITO: I-define ang app variable
-app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///nimbus.db'
-db = SQLAlchemy(app)
-
-# 2. ISUNOD ANG ROUTES: Dito gagamitin ang app variable
-@app.route('/')
-def index():
-    return "Nimbus System is Running!"
-
-@app.route('/dashboard')
-def dashboard():
-    return "Dashboard Page"
 
 if __name__ == '__main__':
     with app.app_context():
