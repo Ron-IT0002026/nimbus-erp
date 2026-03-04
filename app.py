@@ -1,97 +1,210 @@
-import os, sqlite3, uuid
-from flask import Flask, render_template_string, request, redirect, session
+from flask import Flask, render_template_string, request, redirect, url_for
+from flask_sqlalchemy import SQLAlchemy
+import os
 
 app = Flask(__name__)
-app.secret_key = "nimbus_2026_key"
-DB_PATH = "nimbus_final_system.db"
 
-# --- DATABASE SETUP ---
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    # Simplified Table muna para iwas crash
-    c.execute("CREATE TABLE IF NOT EXISTS properties (id INTEGER PRIMARY KEY, name TEXT)")
-    c.execute("""CREATE TABLE IF NOT EXISTS tenants (
-        id TEXT PRIMARY KEY, name TEXT, biz_name TEXT, rent REAL, prop_id INTEGER)""")
+# Database Configuration
+basedir = os.path.abspath(os.path.dirname(__file__))
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'nimbus_leasing.db')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
+
+# --- DATABASE MODEL ---
+class Tenant(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    # Personal & Business Details
+    name = db.Column(db.String(100))
+    bus_name = db.Column(db.String(100))
+    property_name = db.Column(db.String(100))
     
-    props = [(1,'Kapasigan'),(2,'Rosario'),(3,'Marikina'),(4,'Camarin 1'),(5,'Camarin 3'),
-             (6,'Palatiw'),(7,'MB Old'),(8,'MB New'),(9,'Tagaytay 1'),(10,'Tagaytay 2'),
-             (11,'Camarin 2'),(12,'Pateros')]
-    c.executemany("INSERT OR IGNORE INTO properties VALUES (?,?)", props)
-    conn.commit()
-    conn.close()
+    # Family Information
+    father_name = db.Column(db.String(100))
+    mother_name = db.Column(db.String(100))
+    f_health = db.Column(db.String(100))
+    m_health = db.Column(db.String(100))
+    
+    # Financials (Auto-computed)
+    basic_rent = db.Column(db.Float)
+    vat_12 = db.Column(db.Float)
+    wht_5 = db.Column(db.Float)
+    total_rent = db.Column(db.Float)
 
-init_db()
-
-# --- DESIGN ---
-HTML_PAGE = """
+# --- HTML TEMPLATES (Embedded using Render Template String) ---
+LAYOUT = """
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Nimbus ERP</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nimbus Leasing System</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        body { font-family: sans-serif; text-align: center; padding: 50px; background: #f0f2f5; }
-        .box { background: white; padding: 30px; border-radius: 10px; display: inline-block; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-        input, select { display: block; width: 100%; margin: 10px 0; padding: 10px; }
-        button { background: #007bff; color: white; border: none; padding: 10px 20px; cursor: pointer; border-radius: 5px; }
+        body { background-color: #f4f7f6; font-family: 'Segoe UI', sans-serif; }
+        .card { border: none; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        .navbar { background-color: #2c3e50 !important; }
+        .btn-primary { background-color: #3498db; border: none; }
+        .table-container { background: white; padding: 20px; border-radius: 12px; }
     </style>
 </head>
 <body>
-    <div class="box">
-        <h2>Nimbus Dev & Leasing Corp</h2>
-        {% if not logged %}
-            <form method="POST" action="/login">
-                <input type="password" name="pw" placeholder="Admin Password" required>
-                <button>Login</button>
-            </form>
-        {% else %}
-            <p>Welcome, Admin! | <a href="/logout">Logout</a></p>
-            <hr>
-            <h3>Enroll New Tenant</h3>
-            <form method="POST" action="/save">
-                <input name="name" placeholder="Tenant Name" required>
-                <input name="biz_name" placeholder="Business Name">
-                <input name="rent" type="number" placeholder="Rent Amount" required>
-                <select name="prop_id">
-                    {% for p in props %} <option value="{{p[0]}}">{{p[1]}}</option> {% endfor %}
-                </select>
-                <button>Save Tenant</button>
-            </form>
-        {% endif %}
-    </div>
+    <nav class="navbar navbar-expand-lg navbar-dark mb-4">
+        <div class="container">
+            <a class="navbar-brand fw-bold" href="/">NIMBUS DEVELOPMENT</a>
+            <div class="navbar-nav">
+                <a class="nav-link" href="/">Register Tenant</a>
+                <a class="nav-link" href="/dashboard">Dashboard & Reports</a>
+            </div>
+        </div>
+    </nav>
+    <div class="container"> {% block content %} {% endblock %} </div>
 </body>
 </html>
 """
 
-@app.route("/", methods=["GET"])
+INDEX_HTML = """
+{% extends "layout" %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card p-4">
+            <h3 class="text-center mb-4 text-primary">Tenant Information Profile</h3>
+            <form action="/submit" method="POST">
+                <div class="row g-3">
+                    <div class="col-md-6"><label class="form-label">Full Name</label><input type="text" name="name" class="form-control" required></div>
+                    <div class="col-md-6"><label class="form-label">Business Name</label><input type="text" name="bus_name" class="form-control"></div>
+                    <div class="col-md-12">
+                        <label class="form-label">Assign Property</label>
+                        <select name="property" class="form-select">
+                            <option>1 Kapasigan Building- commercial</option>
+                            <option>2 Rosario building - commercial+residential</option>
+                            <option>3 marikina building - commercial</option>
+                            <option>12 pateros - commercial + residential</option>
+                        </select>
+                    </div>
+                    <hr class="my-4">
+                    <h5 class="text-secondary">Parental Information & Health</h5>
+                    <div class="col-md-6"><input type="text" name="father_name" class="form-control" placeholder="Father's Name"></div>
+                    <div class="col-md-6"><input type="text" name="f_health" class="form-control" placeholder="Father's Health Condition"></div>
+                    <div class="col-md-6"><input type="text" name="mother_name" class="form-control" placeholder="Mother's Name"></div>
+                    <div class="col-md-6"><input type="text" name="m_health" class="form-control" placeholder="Mother's Health Condition"></div>
+                    <hr class="my-4">
+                    <h5 class="text-secondary">Financial Setup</h5>
+                    <div class="col-md-12">
+                        <label class="form-label">Basic Monthly Rent (PHP)</label>
+                        <input type="number" name="basic_rent" step="0.01" class="form-control" placeholder="0.00" required>
+                        <small class="text-muted">System will auto-calculate 12% VAT and 5% WHT.</small>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary mt-4 w-100 py-2 fw-bold">Save & Generate Ledger</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+"""
+
+DASHBOARD_HTML = """
+{% extends "layout" %}
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card bg-primary text-white p-3 shadow-sm">
+            <h5>Total Sales Revenue</h5>
+            <h2>₱ {{ "{:,.2f}".format(total_revenue) }}</h2>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card bg-success text-white p-3 shadow-sm">
+            <h5>Active Tenants</h5>
+            <h2>{{ tenants|length }}</h2>
+        </div>
+    </div>
+</div>
+
+<div class="table-container shadow-sm">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4>Summary of Tenants per Property</h4>
+        <form action="/dashboard" method="GET" class="d-flex w-50">
+            <input type="text" name="search" class="form-control me-2" placeholder="Search name or business..." value="{{ search }}">
+            <button type="submit" class="btn btn-dark">Search</button>
+        </form>
+    </div>
+    
+    <table class="table table-striped align-middle">
+        <thead class="table-dark">
+            <tr>
+                <th>Tenant / Business</th>
+                <th>Property</th>
+                <th>Parents & Health</th>
+                <th>Monthly Dues</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for t in tenants %}
+            <tr>
+                <td><strong>{{ t.name }}</strong><br><small>{{ t.bus_name }}</small></td>
+                <td>{{ t.property_name }}</td>
+                <td><small>F: {{ t.father_name }} ({{ t.f_health }})<br>M: {{ t.mother_name }} ({{ t.m_health }})</small></td>
+                <td><span class="badge bg-info text-dark">₱ {{ "{:,.2f}".format(t.total_rent) }}</span></td>
+                <td><a href="/delete/{{ t.id }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete this record?')">Remove</a></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+"""
+
+# --- ROUTES & LOGIC ---
+
+@app.route('/')
 def index():
-    conn = sqlite3.connect(DB_PATH)
-    props = conn.execute("SELECT * FROM properties").fetchall()
-    conn.close()
-    return render_template_string(HTML_PAGE, logged=session.get('logged'), props=props)
+    return render_template_string(LAYOUT.replace("{% block content %} {% endblock %}", INDEX_HTML))
 
-@app.route("/login", methods=["POST"])
-def login():
-    if request.form.get("pw") == "admin123":
-        session['logged'] = True
-    return redirect("/")
+@app.route('/submit', methods=['POST'])
+def submit():
+    basic = float(request.form.get('basic_rent', 0))
+    # Ledger Logic: (Basic + 12% VAT) - 5% WHT
+    vat = basic * 0.12
+    wht = basic * 0.05
+    total = (basic + vat) - wht
+    
+    new_tenant = Tenant(
+        name=request.form.get('name'),
+        bus_name=request.form.get('bus_name'),
+        property_name=request.form.get('property'),
+        father_name=request.form.get('father_name'),
+        mother_name=request.form.get('mother_name'),
+        f_health=request.form.get('f_health'),
+        m_health=request.form.get('m_health'),
+        basic_rent=basic, vat_12=vat, wht_5=wht, total_rent=total
+    )
+    db.session.add(new_tenant)
+    db.session.commit()
+    return redirect(url_for('dashboard'))
 
-@app.route("/save", methods=["POST"])
-def save():
-    if not session.get('logged'): return redirect("/")
-    f = request.form
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("INSERT INTO tenants (id, name, biz_name, rent, prop_id) VALUES (?,?,?,?,?)",
-                 (str(uuid.uuid4())[:8], f['name'], f['biz_name'], f['rent'], f['prop_id']))
-    conn.commit()
-    conn.close()
-    return "<h1>Saved Successfully!</h1><a href='/'>Go Back</a>"
+@app.route('/dashboard')
+def dashboard():
+    search = request.args.get('search', '')
+    if search:
+        tenants = Tenant.query.filter(Tenant.name.contains(search) | Tenant.bus_name.contains(search)).all()
+    else:
+        tenants = Tenant.query.all()
+    
+    total_rev = sum(t.total_rent for t in tenants)
+    return render_template_string(LAYOUT.replace("{% block content %} {% endblock %}", DASHBOARD_HTML), 
+                                  tenants=tenants, total_revenue=total_rev, search=search)
 
-@app.route("/logout")
-def logout():
-    session.clear()
-    return redirect("/")
+@app.route('/delete/<int:id>')
+def delete(id):
+    tenant = Tenant.query.get_or_404(id)
+    db.session.delete(tenant)
+    db.session.commit()
+    return redirect(url_for('dashboard'))
 
-if __name__ == "__main__":
-    # Sinigurado nating Port 9999
-    app.run(host="127.0.0.1", port=9999, debug=True)
+if __name__ == '__main__':
+    with app.app_context():
+        db.create_all() # Automatic creation of nimbus_leasing.db
+    app.run(debug=True)
