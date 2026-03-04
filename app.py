@@ -1,103 +1,61 @@
 import os, sqlite3, uuid
-from flask import Flask, render_template_string, request, redirect, session, url_for
-from functools import wraps
+from flask import Flask, render_template_string, request, redirect, session
 
 app = Flask(__name__)
-app.secret_key = "nimbus_v33_port8080"
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# Gumamit ng bagong database para iwas error sa columns
-DB_PATH = os.path.join(BASE_DIR, "nimbus_final_db.db")
+app.secret_key = "nimbus_2026_key"
+DB_PATH = "nimbus_final_system.db"
 
+# --- DATABASE SETUP ---
 def init_db():
-    with sqlite3.connect(DB_PATH) as conn:
-        c = conn.cursor()
-        c.execute("CREATE TABLE IF NOT EXISTS properties (id INTEGER PRIMARY KEY, name TEXT, type TEXT)")
-        
-        # Complete Tenant Profile Columns base sa listahan mo
-        c.execute("""CREATE TABLE IF NOT EXISTS tenants (
-            id TEXT PRIMARY KEY, name TEXT, biz_name TEXT, birthday TEXT, citizenship TEXT, 
-            civil_status TEXT, tel_no TEXT, mobile_no TEXT, religion TEXT, email TEXT, 
-            res_address TEXT, res_type TEXT, stay_length TEXT, leave_reason TEXT,
-            occupation TEXT, salary REAL, co_address TEXT, co_contact TEXT,
-            prop_id INTEGER, t_type TEXT, rent REAL, sec_deposit REAL)""")
-
-        # Default Buildings
-        props = [
-            (1,'Kapasigan Building','Commercial'),(2,'Rosario Building','Comm+Res'),
-            (3,'Marikina Building','Commercial'),(4,'Camarin 1 Building','Commercial'),
-            (5,'Camarin 3 Building','Comm+Res'),(6,'Market Ave Palatiw','Commercial'),
-            (7,'MB Old Apartment','Residential'),(8,'MB New Apartment','Residential'),
-            (9,'Tagaytay 1','Commercial'),(10,'Tagaytay 2','Commercial'),
-            (11,'Camarin 2','Commercial'),(12,'Pateros','Comm+Res')
-        ]
-        c.executemany("INSERT OR IGNORE INTO properties VALUES (?,?,?)", props)
-        conn.commit()
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    # Simplified Table muna para iwas crash
+    c.execute("CREATE TABLE IF NOT EXISTS properties (id INTEGER PRIMARY KEY, name TEXT)")
+    c.execute("""CREATE TABLE IF NOT EXISTS tenants (
+        id TEXT PRIMARY KEY, name TEXT, biz_name TEXT, rent REAL, prop_id INTEGER)""")
+    
+    props = [(1,'Kapasigan'),(2,'Rosario'),(3,'Marikina'),(4,'Camarin 1'),(5,'Camarin 3'),
+             (6,'Palatiw'),(7,'MB Old'),(8,'MB New'),(9,'Tagaytay 1'),(10,'Tagaytay 2'),
+             (11,'Camarin 2'),(12,'Pateros')]
+    c.executemany("INSERT OR IGNORE INTO properties VALUES (?,?)", props)
+    conn.commit()
+    conn.close()
 
 init_db()
 
-def login_required(f):
-    @wraps(f)
-    def dec(*args, **kwargs):
-        if not session.get('logged_in'): return redirect('/login')
-        return f(*args, **kwargs)
-    return dec
-
-CSS = """
-<style>
-    body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; margin: 0; padding: 20px; }
-    .card { background: white; max-width: 850px; margin: auto; padding: 30px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
-    h1 { color: #1a365d; border-bottom: 3px solid #3182ce; padding-bottom: 10px; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
-    input, select { width: 100%; padding: 12px; margin-top: 5px; border: 1px solid #cbd5e0; border-radius: 8px; box-sizing: border-box; }
-    label { font-weight: bold; color: #4a5568; margin-top: 10px; display: block; }
-    .btn { background: #2b6cb0; color: white; padding: 15px; border: none; width: 100%; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: bold; margin-top: 20px; }
-    .btn:hover { background: #2c5282; }
-    .nav { text-align: center; margin-bottom: 20px; }
-    .nav a { color: #2b6cb0; text-decoration: none; font-weight: bold; margin: 0 15px; }
-</style>
-"""
-
-LAYOUT = """
+# --- DESIGN ---
+HTML_PAGE = """
 <!DOCTYPE html>
 <html>
-<head><title>Nimbus Dev & Leasing Corp</title>{{ css|safe }}</head>
+<head>
+    <title>Nimbus ERP</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 50px; background: #f0f2f5; }
+        .box { background: white; padding: 30px; border-radius: 10px; display: inline-block; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        input, select { display: block; width: 100%; margin: 10px 0; padding: 10px; }
+        button { background: #007bff; color: white; border: none; padding: 10px 20px; cursor: pointer; border-radius: 5px; }
+    </style>
+</head>
 <body>
-    <div class="nav">
-        <a href="/">🏠 Home</a> | <a href="/enroll">➕ Enroll Tenant</a> | <a href="/logout">🚪 Logout</a>
-    </div>
-    <div class="card">
-        {% if p == 'dash' %}
-            <h1>Nimbus Dashboard</h1>
-            <p>System is running on <b>Port 8080</b>.</p>
-            <div style="background: #ebf8ff; padding: 20px; border-radius: 10px; color: #2c5282;">
-                <b>Property Management System Online</b><br>
-                Handa na ang database para sa Nimbus Development and Leasing Corporation.
-            </div>
-            <br>
-            <a href="/enroll" style="text-decoration:none;"><button class="btn">Magsimula: Mag-enroll ng Tenant</button></a>
-
-        {% elif p == 'enr' %}
-            <h1>New Tenant Profile</h1>
-            <form action="/save_t" method="POST">
-                <div class="grid">
-                    <div><label>Name</label><input name="name" required></div>
-                    <div><label>Business Name</label><input name="biz_name"></div>
-                    <div><label>Birthday</label><input type="date" name="birthday"></div>
-                    <div><label>Citizenship</label><input name="citizenship"></div>
-                    <div><label>Civil Status</label>
-                        <select name="civil_status">
-                            <option>Single</option><option>Married</option><option>Widowed</option><option>Separated</option>
-                        </select>
-                    </div>
-                    <div><label>Mobile Number</label><input name="mobile_no"></div>
-                    <div><label>Monthly Rent</label><input type="number" step="0.01" name="rent" required></div>
-                    <div><label>Building</label>
-                        <select name="prop_id">
-                            {% for pr in props %} <option value="{{pr[0]}}">{{pr[1]}} ({{pr[2]}})</option> {% endfor %}
-                        </select>
-                    </div>
-                </div>
-                <button type="submit" class="btn">SAVE PROFILE</button>
+    <div class="box">
+        <h2>Nimbus Dev & Leasing Corp</h2>
+        {% if not logged %}
+            <form method="POST" action="/login">
+                <input type="password" name="pw" placeholder="Admin Password" required>
+                <button>Login</button>
+            </form>
+        {% else %}
+            <p>Welcome, Admin! | <a href="/logout">Logout</a></p>
+            <hr>
+            <h3>Enroll New Tenant</h3>
+            <form method="POST" action="/save">
+                <input name="name" placeholder="Tenant Name" required>
+                <input name="biz_name" placeholder="Business Name">
+                <input name="rent" type="number" placeholder="Rent Amount" required>
+                <select name="prop_id">
+                    {% for p in props %} <option value="{{p[0]}}">{{p[1]}}</option> {% endfor %}
+                </select>
+                <button>Save Tenant</button>
             </form>
         {% endif %}
     </div>
@@ -105,38 +63,35 @@ LAYOUT = """
 </html>
 """
 
-@app.route("/")
-@login_required
-def dash(): return render_template_string(LAYOUT, p='dash', css=CSS)
+@app.route("/", methods=["GET"])
+def index():
+    conn = sqlite3.connect(DB_PATH)
+    props = conn.execute("SELECT * FROM properties").fetchall()
+    conn.close()
+    return render_template_string(HTML_PAGE, logged=session.get('logged'), props=props)
 
-@app.route("/enroll")
-@login_required
-def enroll():
-    conn = sqlite3.connect(DB_PATH); props = conn.execute("SELECT * FROM properties").fetchall(); conn.close()
-    return render_template_string(LAYOUT, p='enr', props=props, css=CSS)
-
-@app.route("/save_t", methods=["POST"])
-def save_t():
-    f = request.form
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.execute("""INSERT INTO tenants (id, name, biz_name, birthday, citizenship, civil_status, mobile_no, prop_id, rent) 
-                     VALUES (?,?,?,?,?,?,?,?,?)""",
-                   (str(uuid.uuid4())[:8], f['name'], f['biz_name'], f['birthday'], f['citizenship'], f['civil_status'], f['mobile_no'], f['prop_id'], f['rent']))
-        conn.commit(); conn.close()
-        return redirect('/')
-    except Exception as e:
-        return f"Error: {e}"
-
-@app.route("/login", methods=["GET", "POST"])
+@app.route("/login", methods=["POST"])
 def login():
-    if request.method == "POST" and request.form.get("pw") == "admin123":
-        session['logged_in'] = True; return redirect('/')
-    return '<body style="font-family:sans-serif; text-align:center; padding-top:100px;"><h2>Nimbus Admin</h2><form method="POST"><input type="password" name="pw" placeholder="Password"><button>Login</button></form></body>'
+    if request.form.get("pw") == "admin123":
+        session['logged'] = True
+    return redirect("/")
+
+@app.route("/save", methods=["POST"])
+def save():
+    if not session.get('logged'): return redirect("/")
+    f = request.form
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("INSERT INTO tenants (id, name, biz_name, rent, prop_id) VALUES (?,?,?,?,?)",
+                 (str(uuid.uuid4())[:8], f['name'], f['biz_name'], f['rent'], f['prop_id']))
+    conn.commit()
+    conn.close()
+    return "<h1>Saved Successfully!</h1><a href='/'>Go Back</a>"
 
 @app.route("/logout")
-def logout(): session.clear(); return redirect('/login')
+def logout():
+    session.clear()
+    return redirect("/")
 
 if __name__ == "__main__":
-    # GUMAGAMIT NA NG PORT 8080
-    app.run(debug=True, host="0.0.0.0", port=8080)
+    # Sinigurado nating Port 9999
+    app.run(host="127.0.0.1", port=9999, debug=True)
