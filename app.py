@@ -208,3 +208,24 @@ if __name__ == '__main__':
     with app.app_context():
         db.create_all() # Automatic creation of nimbus_leasing.db
     app.run(debug=True)
+from flask import Flask, render_template_string
+from flask_sqlalchemy import SQLAlchemy # Siguraduhing naka-install ito gamit ang pip
+
+# 1. DAPAT MAUNA ITO: I-define ang app variable
+app = Flask(__name__)
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///nimbus.db'
+db = SQLAlchemy(app)
+
+# 2. ISUNOD ANG ROUTES: Dito gagamitin ang app variable
+@app.route('/')
+def index():
+    return "Nimbus System is Running!"
+
+@app.route('/dashboard')
+def dashboard():
+    return "Dashboard Page"
+
+if __name__ == '__main__':
+    with app.app_context():
+        db.create_all()
+    app.run(debug=True)
